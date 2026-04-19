@@ -20,6 +20,32 @@ Use this layout on Ubuntu:
 - `systemd` for the backend process
 - one backend port per project, controlled by `PORT`
 
+## Subdomain Setup
+
+If your main domain is already serving another site, point a subdomain to this project:
+
+1. Create an `A` record for your subdomain, for example `app.example.com`.
+2. Point it to the server IP, for example `43.134.71.189`.
+3. Put the Nginx config in `deploy/nginx/social-content-platform.conf` on the server.
+4. Replace `app.example.com` in that file with your real subdomain.
+5. Reload Nginx after testing the config.
+
+Example commands:
+
+```bash
+sudo cp /var/www/xiao/deploy/nginx/social-content-platform.conf /etc/nginx/sites-available/social-content-platform.conf
+sudo ln -s /etc/nginx/sites-available/social-content-platform.conf /etc/nginx/sites-enabled/social-content-platform.conf
+sudo nginx -t
+sudo systemctl reload nginx
+```
+
+If you want HTTPS:
+
+```bash
+sudo apt install -y certbot python3-certbot-nginx
+sudo certbot --nginx -d app.example.com
+```
+
 ## First-Time Install
 
 ```bash
@@ -48,4 +74,3 @@ If you deploy a second project on the same server:
 2. Change the backend `PORT` for that project, for example `8001`.
 3. Give it a separate `systemd` unit file.
 4. Give it a separate `Nginx` server block or subdomain.
-
