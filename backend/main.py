@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
@@ -324,5 +325,15 @@ def serve(host: str = "0.0.0.0", port: int = 8000):
         server.server_close()
 
 
+def _env_int(name: str, default: int) -> int:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    try:
+        return int(value)
+    except ValueError:
+        return default
+
+
 if __name__ == "__main__":
-    serve()
+    serve(host=os.getenv("HOST", "0.0.0.0"), port=_env_int("PORT", 8000))

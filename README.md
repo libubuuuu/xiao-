@@ -92,3 +92,4 @@ set OWNER_ACCESS_TOKEN=your-secret-token
 - The current repo is now aligned to the new social content product direction, not the old sync analyzer demo.
 - The backend exposes the website at `/`, the API summary at `/api`, and the docs note at `/docs`.
 - Image and video artifact generation requires `ffmpeg` to be installed and available on `PATH`.
+- Deployment templates live under [`deploy/README.md`](D:/Documents/New project/deploy/README.md).

@@ -42,12 +42,15 @@ The UI runs on `http://localhost:3000`.
 
 - `OWNER_ACCESS_TOKEN`: unlocks the owner-only publishing area. Default: `owner-demo-token`
 - `REACT_APP_API_URL`: overrides the frontend API base URL
+- `HOST`: backend bind address. Default: `0.0.0.0`
+- `PORT`: backend port. Default: `8000`
 
 ## Production Notes
 
 - Build the frontend with `npm run build` before deploying.
 - Run the backend as a process service with `python main.py`; it serves the built UI and API from the same origin when `frontend/build` is present.
 - If you split the frontend and API onto different hosts, set `REACT_APP_API_URL` to the API origin before building the frontend.
+- If you run two projects on one server, give each one a different `PORT` and its own `systemd` unit or container.
 - Use official or authorized platform integrations only.
 
 ## Operational Checklist
@@ -56,3 +59,9 @@ The UI runs on `http://localhost:3000`.
 2. Replace the in-memory store with a persistent database if you need real retention.
 3. Connect real publishing APIs only through approved integrations.
 4. Add monitoring and audit logging before opening the system to other users.
+
+## Deployment Templates
+
+- Systemd unit: [`deploy/systemd/social-content-platform.service`](D:/Documents/New project/deploy/systemd/social-content-platform.service)
+- Nginx site block: [`deploy/nginx/social-content-platform.conf`](D:/Documents/New project/deploy/nginx/social-content-platform.conf)
+- Server notes: [`deploy/README.md`](D:/Documents/New project/deploy/README.md)

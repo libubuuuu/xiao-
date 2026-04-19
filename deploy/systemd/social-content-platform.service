@@ -1,0 +1,20 @@
+[Unit]
+Description=Social Content Platform Console
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/var/www/xiao/backend
+Environment=HOST=127.0.0.1
+Environment=PORT=8000
+Environment=OWNER_ACCESS_TOKEN=replace-me
+ExecStart=/var/www/xiao/backend/venv/bin/python main.py
+Restart=always
+RestartSec=3
+# Change these to the Linux account that owns the deployment files.
+User=deploy
+Group=deploy
+
+[Install]
+WantedBy=multi-user.target
+
