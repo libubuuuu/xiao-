@@ -58,6 +58,7 @@ The UI runs on `http://localhost:3000`.
 - If you run two projects on one server, give each one a different `PORT` and its own `systemd` unit or container.
 - Use official or authorized platform integrations only.
 - Use `/api/health` for uptime and storage checks.
+- For Ubuntu servers, use [`deploy/bootstrap_ubuntu.sh`](D:/Documents/New project/deploy/bootstrap_ubuntu.sh) to install dependencies, create the `systemd` unit, and configure `Nginx`.
 
 ## Operational Checklist
 

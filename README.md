@@ -100,3 +100,4 @@ set OWNER_ACCESS_TOKEN=your-secret-token
 - The backend health and storage status are exposed at `/api/health`.
 - Image and video artifact generation requires `ffmpeg` to be installed and available on `PATH`.
 - Deployment templates live under [`deploy/README.md`](D:/Documents/New project/deploy/README.md).
+- For Ubuntu servers, the fastest path is [`deploy/bootstrap_ubuntu.sh`](D:/Documents/New project/deploy/bootstrap_ubuntu.sh).

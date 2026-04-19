@@ -5,11 +5,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/var/www/xiao/backend
-Environment=APP_ENV=production
-Environment=HOST=127.0.0.1
-Environment=PORT=8000
-Environment=OWNER_ACCESS_TOKEN=replace-me
-Environment=APP_DB_PATH=/var/www/xiao/backend/data/social_content.sqlite3
+EnvironmentFile=-/etc/social-content-platform.env
 ExecStart=/var/www/xiao/backend/venv/bin/python main.py
 Restart=always
 RestartSec=3

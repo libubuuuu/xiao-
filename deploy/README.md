@@ -22,6 +22,25 @@ Use this layout on Ubuntu:
 - `systemd` for the backend process
 - one backend port per project, controlled by `PORT`
 
+## One-Command Bootstrap
+
+From the repository root, set your real domain and owner token, then run:
+
+```bash
+APP_DOMAIN=app.example.com OWNER_ACCESS_TOKEN=your-strong-token bash deploy/bootstrap_ubuntu.sh
+```
+
+Optional overrides:
+
+- `APP_SERVICE_NAME`: systemd and Nginx base name. Default: `social-content-platform`
+- `APP_USER`: Linux account used by `systemd`. Default: `socialapp`
+- `APP_GROUP`: Linux group used by `systemd`. Default: same as `APP_USER`
+- `APP_PORT`: backend port for this project. Default: `8000`
+- `APP_DB_PATH`: SQLite path for persistent data. Default: `backend/data/social_content.sqlite3`
+- `REPO_BRANCH`: Git branch to deploy. Default: `main`
+
+The script writes runtime variables to `/etc/social-content-platform.env`, provisions `systemd`, configures `Nginx`, and checks `/api/health`.
+
 ## Subdomain Setup
 
 If your main domain is already serving another site, point a subdomain to this project:
