@@ -9,14 +9,11 @@ try:
     from app import store
     from app.config import get_settings
     from app.frontend import guess_content_type, resolve_frontend_asset
-    from app.server import app as starlette_app
 except ImportError:  # pragma: no cover
     from backend.app import store
     from backend.app.config import get_settings
     from backend.app.frontend import guess_content_type, resolve_frontend_asset
-    from backend.app.server import app as starlette_app
 
-app = starlette_app
 SETTINGS = get_settings()
 
 
