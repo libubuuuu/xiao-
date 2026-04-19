@@ -56,7 +56,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The API will run at `http://localhost:8000`.
+The UI and API will run on the same origin at `http://localhost:8000`.
+Open the website at `/` and the API summary at `/api`.
 
 ### Frontend
 
@@ -89,5 +90,5 @@ set OWNER_ACCESS_TOKEN=your-secret-token
 - The backend uses mock data so the console works without external services.
 - You can later replace the mock data layer with real platform integrations.
 - The current repo is now aligned to the new social content product direction, not the old sync analyzer demo.
-- The backend exposes a local API at `http://localhost:8000` and a docs endpoint at `/docs`.
+- The backend exposes the website at `/`, the API summary at `/api`, and the docs note at `/docs`.
 - Image and video artifact generation requires `ffmpeg` to be installed and available on `PATH`.

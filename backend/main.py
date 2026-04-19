@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 try:
     from app import store
+    from app.frontend import guess_content_type, resolve_frontend_asset
     from app.server import app as starlette_app
 except ImportError:  # pragma: no cover
     from backend.app import store
+    from backend.app.frontend import guess_content_type, resolve_frontend_asset
     from backend.app.server import app as starlette_app
 
 app = starlette_app
@@ -54,8 +57,11 @@ class APIHandler(BaseHTTPRequestHandler):
 
     def _write_json(self, status, data, extra_headers=None):
         payload = json.dumps(data, ensure_ascii=False).encode("utf-8")
+        self._write_bytes(status, payload, "application/json; charset=utf-8", extra_headers)
+
+    def _write_bytes(self, status, payload: bytes, content_type: str, extra_headers=None):
         self.send_response(status)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Owner-Token")
@@ -64,6 +70,25 @@ class APIHandler(BaseHTTPRequestHandler):
             self.send_header(key, value)
         self.end_headers()
         self.wfile.write(payload)
+
+    def _write_file(self, file_path: Path):
+        payload = file_path.read_bytes()
+        content_type = guess_content_type(file_path)
+        self._write_bytes(200, payload, content_type)
+
+    def _resolve_file_path(self, base_dir: Path, request_path: str) -> Path | None:
+        relative_path = request_path.lstrip("/")
+        if not relative_path:
+            return None
+
+        base_root = base_dir.resolve()
+        candidate = (base_dir / relative_path).resolve()
+        try:
+            candidate.relative_to(base_root)
+        except ValueError:
+            return None
+
+        return candidate if candidate.is_file() else None
 
     def _read_json(self):
         length = int(self.headers.get("Content-Length") or 0)
@@ -86,6 +111,13 @@ class APIHandler(BaseHTTPRequestHandler):
         segments = [segment for segment in path.split("/") if segment]
 
         if method == "GET" and path == "/":
+            asset = resolve_frontend_asset(path)
+            if asset is not None:
+                return self._write_file(asset)
+            status, data, headers = _root()
+            return self._write_json(status, data, headers)
+
+        if method == "GET" and path == "/api":
             status, data, headers = _root()
             return self._write_json(status, data, headers)
 
@@ -263,6 +295,20 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and path == "/docs":
             return self._write_json(200, {"detail": "Open /api/meta for the product summary."})
+
+        if path.startswith("/api/artifacts/"):
+            artifact_path = self._resolve_file_path(store.ARTIFACT_DIR, path.removeprefix("/api/artifacts/"))
+            if artifact_path is not None:
+                return self._write_file(artifact_path)
+            return self._write_json(404, {"detail": "Artifact not found"})
+
+        if path.startswith("/api/"):
+            return self._write_json(404, {"detail": "Not found"})
+
+        if method == "GET":
+            asset = resolve_frontend_asset(path)
+            if asset is not None:
+                return self._write_file(asset)
 
         return self._write_json(404, {"detail": "Not found"})
 

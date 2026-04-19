@@ -5,15 +5,25 @@ from typing import Any, Dict, Optional
 from starlette.applications import Starlette
 from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse
-from starlette.routing import Route
+from starlette.responses import FileResponse, JSONResponse
+from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
 from . import store
+from .frontend import resolve_frontend_asset
 
 
 def json(data: Dict[str, Any], status: int = 200) -> JSONResponse:
     return JSONResponse(data, status_code=status)
+
+
+def _root_payload() -> Dict[str, Any]:
+    return {
+        "name": "Social Content Platform API",
+        "version": "0.1.0",
+        "policy": "official APIs and authorized integrations only",
+        "docs": "/docs",
+    }
 
 
 async def read_json(request: Request) -> Dict[str, Any]:
@@ -28,15 +38,27 @@ def owner_ok(request: Request) -> bool:
     return store.validate_owner_token(request.headers.get("x-owner-token") or "")
 
 
-async def root(request: Request) -> JSONResponse:
-    return json(
-        {
-            "name": "Social Content Platform API",
-            "version": "0.1.0",
-            "policy": "official APIs and authorized integrations only",
-            "docs": "/docs",
-        }
-    )
+async def root(request: Request):
+    asset = resolve_frontend_asset("/")
+    if asset is not None:
+        return FileResponse(asset)
+    return json(_root_payload())
+
+
+async def api_root(request: Request) -> JSONResponse:
+    return json(_root_payload())
+
+
+async def frontend_fallback(request: Request):
+    path = request.url.path
+    if path.startswith("/api/"):
+        return json({"detail": "Not found"}, status=404)
+
+    asset = resolve_frontend_asset(path)
+    if asset is not None:
+        return FileResponse(asset)
+
+    return json({"detail": "Not found"}, status=404)
 
 
 async def meta(request: Request) -> JSONResponse:
@@ -234,7 +256,7 @@ async def activity(request: Request) -> JSONResponse:
 
 
 routes = [
-    Route("/", root, methods=["GET"]),
+    Route("/api", api_root, methods=["GET"]),
     Route("/api/meta", meta, methods=["GET"]),
     Route("/api/overview", overview, methods=["GET"]),
     Route("/api/platforms", list_platforms, methods=["GET"]),
@@ -253,10 +275,12 @@ routes = [
     Route("/api/publishing/drafts", list_drafts, methods=["GET"]),
     Route("/api/comments/suggestions", comment_suggestions, methods=["POST"]),
     Route("/api/activity", activity, methods=["GET"]),
+    Mount("/api/artifacts", StaticFiles(directory=str(store.ARTIFACT_DIR)), name="artifacts"),
+    Route("/", root, methods=["GET"]),
+    Route("/{path:path}", frontend_fallback, methods=["GET"]),
 ]
 
 app = Starlette(debug=False, routes=routes)
-app.mount("/api/artifacts", StaticFiles(directory=str(store.ARTIFACT_DIR)), name="artifacts")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

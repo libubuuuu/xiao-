@@ -25,7 +25,8 @@ pip install -r requirements.txt
 python main.py
 ```
 
-The API runs on `http://localhost:8000`.
+The website and API share the same origin at `http://localhost:8000`.
+Open the UI at `/` and the API summary at `/api`.
 
 ### Frontend
 
@@ -44,9 +45,9 @@ The UI runs on `http://localhost:3000`.
 
 ## Production Notes
 
-- Run the backend as a process service with `python main.py` and keep it behind a reverse proxy.
-- Build the frontend with `npm run build` and serve the generated static files from Nginx or another web server.
-- Keep the backend on a private network and expose only the reverse proxy to the public internet.
+- Build the frontend with `npm run build` before deploying.
+- Run the backend as a process service with `python main.py`; it serves the built UI and API from the same origin when `frontend/build` is present.
+- If you split the frontend and API onto different hosts, set `REACT_APP_API_URL` to the API origin before building the frontend.
 - Use official or authorized platform integrations only.
 
 ## Operational Checklist
