@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import shutil
 import subprocess
@@ -12,7 +13,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import textwrap
 
-OWNER_ACCESS_TOKEN = os.getenv("OWNER_ACCESS_TOKEN", "owner-demo-token")
+from .config import get_settings
+from .repository import get_repository
+
+SETTINGS = get_settings()
+REPOSITORY = get_repository()
+OWNER_ACCESS_TOKEN = SETTINGS.owner_access_token
 BASE_DIR = Path(__file__).resolve().parent
 ARTIFACT_DIR = BASE_DIR / "artifacts"
 ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
@@ -173,6 +179,8 @@ ACCOUNTS: List[Dict[str, Any]] = [
     {"id": "acc-youtube-studio", "platform_id": "youtube", "display_name": "YouTube Studio", "handle": "@studio_channel", "status": "connected", "draft_count": 2, "last_sync": _now(), "owner_only": True},
 ]
 
+REPOSITORY.seed_accounts(ACCOUNTS, _now())
+
 
 STATE: Dict[str, Any] = {
     "cart": [],
@@ -186,7 +194,67 @@ STATE: Dict[str, Any] = {
 
 def log_activity(action: str, payload: Dict[str, Any]) -> None:
     with LOCK:
-        STATE["activity_log"].append({"action": action, "payload": payload, "timestamp": _now()})
+        timestamp = _now()
+        record = {"action": action, "payload": payload, "timestamp": timestamp}
+        STATE["activity_log"].append(record)
+    REPOSITORY.log_activity(action, payload, timestamp)
+
+
+def get_cart_items() -> List[Dict[str, Any]]:
+    items = REPOSITORY.list_cart_items()
+    with LOCK:
+        STATE["cart"] = items
+    return items
+
+
+def add_cart_item(item: Dict[str, Any]) -> List[Dict[str, Any]]:
+    timestamp = _now()
+    REPOSITORY.add_cart_item(item, timestamp)
+    with LOCK:
+        if not any(entry["id"] == item["id"] for entry in STATE["cart"]):
+            STATE["cart"].append(item)
+        items = list(STATE["cart"])
+    log_activity("add_to_cart", {"item_id": item["id"]})
+    return items
+
+
+def remove_cart_item(item_id: str) -> List[Dict[str, Any]]:
+    REPOSITORY.remove_cart_item(item_id)
+    with LOCK:
+        STATE["cart"] = [item for item in STATE["cart"] if item["id"] != item_id]
+        items = list(STATE["cart"])
+    log_activity("remove_cart_item", {"item_id": item_id})
+    return items
+
+
+def get_remix_job(job_id: str) -> Optional[Dict[str, Any]]:
+    job = STATE["remix_jobs"].get(job_id) or REPOSITORY.get_remix_job(job_id)
+    if job and job_id not in STATE["remix_jobs"]:
+        with LOCK:
+            STATE["remix_jobs"][job_id] = job
+    return job
+
+
+def get_canvas_job(job_id: str) -> Optional[Dict[str, Any]]:
+    job = STATE["canvas_jobs"].get(job_id) or REPOSITORY.get_canvas_job(job_id)
+    if job and job_id not in STATE["canvas_jobs"]:
+        with LOCK:
+            STATE["canvas_jobs"][job_id] = job
+    return job
+
+
+def get_drafts() -> List[Dict[str, Any]]:
+    drafts = REPOSITORY.list_drafts()
+    with LOCK:
+        STATE["drafts"] = drafts
+    return drafts
+
+
+def get_activity_log(limit: int = 25) -> List[Dict[str, Any]]:
+    activity = REPOSITORY.list_activity(limit)
+    with LOCK:
+        STATE["activity_log"] = activity
+    return activity
 
 
 def get_platforms(region: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -200,9 +268,11 @@ def get_platform(platform_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_accounts(platform_id: Optional[str] = None) -> List[Dict[str, Any]]:
-    if platform_id:
-        return [item for item in ACCOUNTS if item["platform_id"] == platform_id]
-    return ACCOUNTS
+    accounts = REPOSITORY.list_accounts(platform_id)
+    if platform_id is None:
+        with LOCK:
+            ACCOUNTS[:] = accounts
+    return accounts
 
 
 def connect_account(platform_id: str, display_name: str, handle: str) -> Dict[str, Any]:
@@ -210,16 +280,9 @@ def connect_account(platform_id: str, display_name: str, handle: str) -> Dict[st
     if not platform:
         raise ValueError("Unknown platform")
 
-    account = {
-        "id": f"acc-{uuid.uuid4().hex[:10]}",
-        "platform_id": platform_id,
-        "display_name": display_name,
-        "handle": handle,
-        "status": "connected",
-        "draft_count": 0,
-        "last_sync": _now(),
-        "owner_only": True,
-    }
+    with LOCK:
+        account_id = f"acc-{uuid.uuid4().hex[:10]}"
+    account = REPOSITORY.create_account(account_id, platform_id, display_name, handle, _now())
     with LOCK:
         ACCOUNTS.insert(0, account)
     log_activity("connect_account", {"account_id": account["id"], "platform_id": platform_id})
@@ -451,6 +514,7 @@ def create_remix_job(request: Dict[str, Any], sources: List[Dict[str, Any]]) -> 
     }
     with LOCK:
         STATE["remix_jobs"][job_id] = job
+    REPOSITORY.save_remix_job(job)
     log_activity("create_remix_job", {"job_id": job_id, "source_count": len(sources)})
     return job
 
@@ -495,6 +559,7 @@ def create_canvas_job(request: Dict[str, Any]) -> Dict[str, Any]:
     }
     with LOCK:
         STATE["canvas_jobs"][job_id] = job
+    REPOSITORY.save_canvas_job(job)
     log_activity("create_canvas_job", {"job_id": job_id, "count": count})
     return job
 
@@ -518,6 +583,8 @@ def create_draft(request: Dict[str, Any], account: Dict[str, Any], platform: Dic
     }
     with LOCK:
         STATE["drafts"].insert(0, draft)
+    REPOSITORY.save_draft(draft)
+    REPOSITORY.bump_account_draft_count(account["id"], draft["created_at"])
     log_activity("create_draft", {"draft_id": draft["id"], "account_id": account["id"]})
     return draft
 
@@ -547,6 +614,7 @@ def create_comment_suggestions(request: Dict[str, Any]) -> Dict[str, Any]:
         "targets": targets,
         "context": request["context"],
         "tone": request["tone"],
+        "status": "completed",
         "shared_points": shared_points,
         "suggestions": suggestions,
         "safety_note": "Only comment suggestions are produced. Human review is required before posting.",
@@ -554,6 +622,7 @@ def create_comment_suggestions(request: Dict[str, Any]) -> Dict[str, Any]:
     }
     with LOCK:
         STATE["comment_jobs"][job["job_id"]] = job
+    REPOSITORY.save_comment_job(job)
     log_activity("create_comment_suggestions", {"target_count": len(targets)})
     return job
 
@@ -563,12 +632,30 @@ def validate_owner_token(token: str) -> bool:
 
 
 def get_overview() -> Dict[str, Any]:
+    dynamic = REPOSITORY.overview_counts()
     return {
         "platform_count": len(PLATFORMS),
         "domestic_count": len([item for item in PLATFORMS if item["region"] == "domestic"]),
         "overseas_count": len([item for item in PLATFORMS if item["region"] == "overseas"]),
-        "connected_accounts": len(ACCOUNTS),
-        "draft_count": len(STATE["drafts"]),
-        "remix_jobs": len(STATE["remix_jobs"]),
-        "canvas_jobs": len(STATE["canvas_jobs"]),
+        "connected_accounts": dynamic["connected_accounts"],
+        "draft_count": dynamic["draft_count"],
+        "remix_jobs": dynamic["remix_jobs"],
+        "canvas_jobs": dynamic["canvas_jobs"],
+        "cart_count": dynamic["cart_count"],
+        "comment_jobs": dynamic["comment_jobs"],
+        "activity_count": dynamic["activity_count"],
+        "database_path": str(SETTINGS.database_path),
+        "service_version": SETTINGS.service_version,
     }
+
+
+def get_health_status() -> Dict[str, Any]:
+    health = REPOSITORY.health()
+    health.update(
+        {
+            "service_version": SETTINGS.service_version,
+            "environment": SETTINGS.environment,
+            "owner_console_enabled": bool(SETTINGS.owner_access_token),
+        }
+    )
+    return health

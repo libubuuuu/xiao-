@@ -9,8 +9,11 @@ from starlette.responses import FileResponse, JSONResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
+from .config import get_settings
 from . import store
 from .frontend import resolve_frontend_asset
+
+SETTINGS = get_settings()
 
 
 def json(data: Dict[str, Any], status: int = 200) -> JSONResponse:
@@ -20,7 +23,7 @@ def json(data: Dict[str, Any], status: int = 200) -> JSONResponse:
 def _root_payload() -> Dict[str, Any]:
     return {
         "name": "Social Content Platform API",
-        "version": "0.1.0",
+        "version": SETTINGS.service_version,
         "policy": "official APIs and authorized integrations only",
         "docs": "/docs",
     }
@@ -65,7 +68,7 @@ async def meta(request: Request) -> JSONResponse:
     return json(
         {
             "name": "Social Content Platform",
-            "version": "0.1.0",
+            "version": SETTINGS.service_version,
             "modules": [
                 "platform_radar",
                 "cart_workspace",
@@ -143,23 +146,19 @@ async def cart_items(request: Request) -> JSONResponse:
     item = payload.get("item")
     if not item:
         return json({"detail": "item is required"}, status=400)
-    with store.LOCK:
-        if not any(entry["id"] == item["id"] for entry in store.STATE["cart"]):
-            store.STATE["cart"].append(item)
-    store.log_activity("add_to_cart", {"item_id": item["id"]})
-    return json({"items": store.STATE["cart"], "count": len(store.STATE["cart"])})
+    items = store.add_cart_item(item)
+    return json({"items": items, "count": len(items)})
 
 
 async def cart_list(request: Request) -> JSONResponse:
-    return json({"items": store.STATE["cart"], "count": len(store.STATE["cart"])})
+    items = store.get_cart_items()
+    return json({"items": items, "count": len(items)})
 
 
 async def cart_delete(request: Request) -> JSONResponse:
     item_id = request.path_params["item_id"]
-    with store.LOCK:
-        store.STATE["cart"] = [item for item in store.STATE["cart"] if item["id"] != item_id]
-    store.log_activity("remove_cart_item", {"item_id": item_id})
-    return json({"items": store.STATE["cart"], "count": len(store.STATE["cart"])})
+    items = store.remove_cart_item(item_id)
+    return json({"items": items, "count": len(items)})
 
 
 async def create_remix(request: Request) -> JSONResponse:
@@ -168,7 +167,7 @@ async def create_remix(request: Request) -> JSONResponse:
     mode = payload.get("mode", "merge")
     preserve_media = bool(payload.get("preserve_media", True))
     tone = payload.get("tone", "professional")
-    sources = [item for item in store.STATE["cart"] if item["id"] in item_ids]
+    sources = [item for item in store.get_cart_items() if item["id"] in item_ids]
     if not sources:
         return json({"detail": "At least one cart item is required"}, status=400)
     try:
@@ -180,7 +179,7 @@ async def create_remix(request: Request) -> JSONResponse:
 
 async def get_remix(request: Request) -> JSONResponse:
     job_id = request.path_params["job_id"]
-    job = store.STATE["remix_jobs"].get(job_id)
+    job = store.get_remix_job(job_id)
     if not job:
         return json({"detail": "Remix job not found"}, status=404)
     return json(job)
@@ -208,7 +207,7 @@ async def create_canvas(request: Request) -> JSONResponse:
 
 async def get_canvas(request: Request) -> JSONResponse:
     job_id = request.path_params["job_id"]
-    job = store.STATE["canvas_jobs"].get(job_id)
+    job = store.get_canvas_job(job_id)
     if not job:
         return json({"detail": "Canvas job not found"}, status=404)
     return json(job)
@@ -235,7 +234,7 @@ async def create_draft(request: Request) -> JSONResponse:
 async def list_drafts(request: Request) -> JSONResponse:
     if not owner_ok(request):
         return json({"detail": "Owner access required"}, status=403)
-    return json({"items": store.STATE["drafts"]})
+    return json({"items": store.get_drafts()})
 
 
 async def comment_suggestions(request: Request) -> JSONResponse:
@@ -252,7 +251,11 @@ async def comment_suggestions(request: Request) -> JSONResponse:
 
 
 async def activity(request: Request) -> JSONResponse:
-    return json({"items": store.STATE["activity_log"][-25:]})
+    return json({"items": store.get_activity_log()})
+
+
+async def health(request: Request) -> JSONResponse:
+    return json(store.get_health_status())
 
 
 routes = [
@@ -275,6 +278,7 @@ routes = [
     Route("/api/publishing/drafts", list_drafts, methods=["GET"]),
     Route("/api/comments/suggestions", comment_suggestions, methods=["POST"]),
     Route("/api/activity", activity, methods=["GET"]),
+    Route("/api/health", health, methods=["GET"]),
     Mount("/api/artifacts", StaticFiles(directory=str(store.ARTIFACT_DIR)), name="artifacts"),
     Route("/", root, methods=["GET"]),
     Route("/{path:path}", frontend_fallback, methods=["GET"]),
@@ -283,8 +287,8 @@ routes = [
 app = Starlette(debug=False, routes=routes)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=list(SETTINGS.cors_origins),
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
 )

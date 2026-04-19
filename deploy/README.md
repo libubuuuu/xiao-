@@ -6,6 +6,8 @@ This project is designed to run as a single backend process that serves:
 - the built frontend
 - the `/docs` endpoint
 
+It persists application data in SQLite by default and exposes health checks at `/api/health`.
+
 Use this layout on Ubuntu:
 
 ```text
@@ -63,7 +65,7 @@ npm run build
 cd /var/www/xiao/backend
 python3 -m venv venv
 venv/bin/pip install -r requirements.txt
-PORT=8000 OWNER_ACCESS_TOKEN=replace-me venv/bin/python main.py
+APP_ENV=production APP_DB_PATH=/var/www/xiao/backend/data/social_content.sqlite3 PORT=8000 OWNER_ACCESS_TOKEN=replace-me venv/bin/python main.py
 ```
 
 ## Multi-Project Notes

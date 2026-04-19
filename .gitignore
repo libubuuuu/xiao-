@@ -3,12 +3,14 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.sqlite3
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 backend/__pycache__/
 backend/app/__pycache__/
 backend/app/artifacts/
+backend/data/
 backend/_fftest*/
 backend/ffmpeg_test*.png
 backend/venv/
@@ -19,11 +21,15 @@ node_modules/
 frontend/node_modules/
 frontend/build/
 /package-lock.json
+uploads/
+results/
 
 # Env / local config
 .env
 .env.*
 *.local
+backend-start.log
+backend-start.err
 
 # OS / editor
 .DS_Store

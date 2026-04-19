@@ -1,21 +1,23 @@
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 try:
     from app import store
+    from app.config import get_settings
     from app.frontend import guess_content_type, resolve_frontend_asset
     from app.server import app as starlette_app
 except ImportError:  # pragma: no cover
     from backend.app import store
+    from backend.app.config import get_settings
     from backend.app.frontend import guess_content_type, resolve_frontend_asset
     from backend.app.server import app as starlette_app
 
 app = starlette_app
+SETTINGS = get_settings()
 
 
 def _json(data, status=200, extra_headers=None):
@@ -26,7 +28,7 @@ def _root():
     return _json(
         {
             "name": "Social Content Platform API",
-            "version": "0.1.0",
+            "version": SETTINGS.service_version,
             "policy": "official APIs and authorized integrations only",
             "docs": "/docs",
         }
@@ -34,16 +36,32 @@ def _root():
 
 
 class APIHandler(BaseHTTPRequestHandler):
-    server_version = "SocialContentPlatform/0.1"
+    server_version = f"SocialContentPlatform/{SETTINGS.service_version}"
 
     def log_message(self, format, *args):  # pragma: no cover
         return
 
+    def _allowed_origin(self):
+        origin = self.headers.get("Origin")
+        if not origin:
+            return None
+        if "*" in SETTINGS.cors_origins:
+            return "*"
+        if origin in SETTINGS.cors_origins:
+            return origin
+        return None
+
+    def _send_cors_headers(self):
+        origin = self._allowed_origin()
+        if origin:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Owner-Token, X-Request-Id")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
+
     def do_OPTIONS(self):
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Owner-Token")
-        self.send_header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
+        self._send_cors_headers()
         self.send_header("Content-Length", "0")
         self.end_headers()
 
@@ -64,9 +82,7 @@ class APIHandler(BaseHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(payload)))
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Owner-Token")
-        self.send_header("Access-Control-Allow-Methods", "GET,POST,DELETE,OPTIONS")
+        self._send_cors_headers()
         for key, value in (extra_headers or {}).items():
             self.send_header(key, value)
         self.end_headers()
@@ -94,7 +110,7 @@ class APIHandler(BaseHTTPRequestHandler):
     def _read_json(self):
         length = int(self.headers.get("Content-Length") or 0)
         if not length:
-          return {}
+            return {}
         raw = self.rfile.read(length)
         try:
             data = json.loads(raw.decode("utf-8"))
@@ -127,7 +143,7 @@ class APIHandler(BaseHTTPRequestHandler):
                 200,
                 {
                     "name": "Social Content Platform",
-                    "version": "0.1.0",
+                    "version": SETTINGS.service_version,
                     "modules": [
                         "platform_radar",
                         "cart_workspace",
@@ -142,6 +158,9 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and path == "/api/overview":
             return self._write_json(200, store.get_overview())
+
+        if method == "GET" and path == "/api/health":
+            return self._write_json(200, store.get_health_status())
 
         if method == "GET" and path == "/api/platforms":
             region = (params.get("region") or [None])[0]
@@ -196,30 +215,26 @@ class APIHandler(BaseHTTPRequestHandler):
             )
 
         if method == "GET" and path == "/api/cart":
-            return self._write_json(200, {"items": store.STATE["cart"], "count": len(store.STATE["cart"])})
+            items = store.get_cart_items()
+            return self._write_json(200, {"items": items, "count": len(items)})
 
         if method == "POST" and path == "/api/cart/items":
             payload = self._read_json()
             item = payload.get("item")
             if not item:
                 return self._write_json(400, {"detail": "item is required"})
-            with store.LOCK:
-                if not any(entry["id"] == item["id"] for entry in store.STATE["cart"]):
-                    store.STATE["cart"].append(item)
-            store.log_activity("add_to_cart", {"item_id": item["id"]})
-            return self._write_json(200, {"items": store.STATE["cart"], "count": len(store.STATE["cart"])})
+            items = store.add_cart_item(item)
+            return self._write_json(200, {"items": items, "count": len(items)})
 
         if method == "DELETE" and len(segments) == 3 and segments[0] == "api" and segments[1] == "cart":
             item_id = segments[2]
-            with store.LOCK:
-                store.STATE["cart"] = [item for item in store.STATE["cart"] if item["id"] != item_id]
-            store.log_activity("remove_cart_item", {"item_id": item_id})
-            return self._write_json(200, {"items": store.STATE["cart"], "count": len(store.STATE["cart"])})
+            items = store.remove_cart_item(item_id)
+            return self._write_json(200, {"items": items, "count": len(items)})
 
         if method == "POST" and path == "/api/remix/jobs":
             payload = self._read_json()
             item_ids = payload.get("item_ids") or []
-            sources = [item for item in store.STATE["cart"] if item["id"] in item_ids]
+            sources = [item for item in store.get_cart_items() if item["id"] in item_ids]
             if not sources:
                 return self._write_json(400, {"detail": "At least one cart item is required"})
             job = store.create_remix_job(
@@ -234,7 +249,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and len(segments) == 4 and segments[0] == "api" and segments[1] == "remix" and segments[2] == "jobs":
             job_id = segments[3]
-            job = store.STATE["remix_jobs"].get(job_id)
+            job = store.get_remix_job(job_id)
             if not job:
                 return self._write_json(404, {"detail": "Remix job not found"})
             return self._write_json(200, job)
@@ -253,7 +268,7 @@ class APIHandler(BaseHTTPRequestHandler):
 
         if method == "GET" and len(segments) == 4 and segments[0] == "api" and segments[1] == "canvas" and segments[2] == "jobs":
             job_id = segments[3]
-            job = store.STATE["canvas_jobs"].get(job_id)
+            job = store.get_canvas_job(job_id)
             if not job:
                 return self._write_json(404, {"detail": "Canvas job not found"})
             return self._write_json(200, job)
@@ -278,7 +293,7 @@ class APIHandler(BaseHTTPRequestHandler):
         if method == "GET" and path == "/api/publishing/drafts":
             if not self._owner_ok():
                 return self._write_json(403, {"detail": "Owner access required"})
-            return self._write_json(200, {"items": store.STATE["drafts"]})
+            return self._write_json(200, {"items": store.get_drafts()})
 
         if method == "POST" and path == "/api/comments/suggestions":
             payload = self._read_json()
@@ -292,7 +307,7 @@ class APIHandler(BaseHTTPRequestHandler):
             return self._write_json(200, job)
 
         if method == "GET" and path == "/api/activity":
-            return self._write_json(200, {"items": store.STATE["activity_log"][-25:]})
+            return self._write_json(200, {"items": store.get_activity_log()})
 
         if method == "GET" and path == "/docs":
             return self._write_json(200, {"detail": "Open /api/meta for the product summary."})
@@ -325,15 +340,5 @@ def serve(host: str = "0.0.0.0", port: int = 8000):
         server.server_close()
 
 
-def _env_int(name: str, default: int) -> int:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    try:
-        return int(value)
-    except ValueError:
-        return default
-
-
 if __name__ == "__main__":
-    serve(host=os.getenv("HOST", "0.0.0.0"), port=_env_int("PORT", 8000))
+    serve(host=SETTINGS.host, port=SETTINGS.port)
